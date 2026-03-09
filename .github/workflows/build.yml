@@ -1,23 +1,33 @@
-name: Build APK
+name: Build Winlator APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository with submodules
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git
+
+      - name: Download adrenotools
+        run: |
+          git clone https://github.com/bylaws/libadrenotools
+          mv libadrenotools Winlator-Ludashi-2.9/app/src/main/cpp/adrenotools
 
       - name: Build APK
         run: |
