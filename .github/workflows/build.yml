@@ -2,18 +2,16 @@ name: Build APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Clone Winlator
-        run: |
-          git clone https://github.com/holsikholsikstream-tech/forcrate
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -23,7 +21,7 @@ jobs:
 
       - name: Build APK
         run: |
-          cd winlator
+          cd Winlator-Ludashi-2.9
           chmod +x gradlew
           ./gradlew assembleDebug
 
@@ -31,4 +29,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: winlator-apk
-          path: winlator/app/build/outputs/apk/debug/app-debug.apk
+          path: Winlator-Ludashi-2.9/app/build/outputs/apk/debug/app-debug.apk
