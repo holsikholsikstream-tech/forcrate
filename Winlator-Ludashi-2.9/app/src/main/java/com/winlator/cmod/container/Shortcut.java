@@ -14,6 +14,7 @@ import java.nio.file.Files;
 
     import java.io.File;
     import java.util.ArrayList;
+import java.util.Locale;
     import java.util.Iterator;
     import java.util.List;
     import java.util.UUID;
@@ -285,6 +286,129 @@ import java.nio.file.Files;
             }
         }
 
+
+        public static boolean isSupportedExecutableName(String fileName) {
+            if (fileName == null || fileName.trim().isEmpty()) return false;
+            String lowerName = fileName.toLowerCase(Locale.ENGLISH);
+            return lowerName.endsWith(".exe") || lowerName.endsWith(".lnk") || lowerName.endsWith(".bat");
+        }
+
+        public static Shortcut createFromExternalExecutable(Container container, File executableFile) {
+            try {
+                if (container == null || executableFile == null || !executableFile.isFile()) return null;
+                if (!isSupportedExecutableName(executableFile.getName())) return null;
+
+                String hostPath = executableFile.getCanonicalPath();
+                String dosPath = resolveDosPath(container, hostPath, true);
+                if (dosPath == null || dosPath.isEmpty()) return null;
+
+                File desktopDir = container.getDesktopDir();
+                if (!desktopDir.exists() && !desktopDir.mkdirs()) return null;
+
+                String shortcutName = sanitizeShortcutName(FileUtils.getBasename(executableFile.getName()));
+                File shortcutFile = buildUniqueShortcutFile(desktopDir, shortcutName);
+                String content = buildDesktopEntry(shortcutName, dosPath, container.id);
+                if (!FileUtils.writeString(shortcutFile, content)) return null;
+
+                return new Shortcut(container, shortcutFile);
+            }
+            catch (IOException e) {
+                Log.e("Shortcut", "Failed to create shortcut from external executable", e);
+                return null;
+            }
+        }
+
+        public static String resolveDosPath(Container container, String hostPath, boolean autoAddDrive) {
+            if (container == null || hostPath == null || hostPath.isEmpty()) return null;
+
+            String normalizedHostPath = normalizePath(hostPath);
+            if (normalizedHostPath.isEmpty()) return null;
+
+            String driveCPath = normalizePath(new File(container.getRootDir(), ".wine/drive_c").getAbsolutePath());
+            if (isSameOrChild(normalizedHostPath, driveCPath)) {
+                String relativePath = toDosRelativePath(FileUtils.toRelativePath(driveCPath, normalizedHostPath));
+                return relativePath.isEmpty() ? "C:\\" : "C:\\" + relativePath;
+            }
+
+            String bestDriveLetter = null;
+            String bestDriveBase = null;
+            for (String[] drive : container.drivesIterator()) {
+                String driveBase = normalizePath(new File(drive[1]).getAbsolutePath());
+                if (isSameOrChild(normalizedHostPath, driveBase)) {
+                    if (bestDriveBase == null || driveBase.length() > bestDriveBase.length()) {
+                        bestDriveBase = driveBase;
+                        bestDriveLetter = drive[0];
+                    }
+                }
+            }
+
+            if (bestDriveLetter != null && bestDriveBase != null) {
+                String relativePath = toDosRelativePath(FileUtils.toRelativePath(bestDriveBase, normalizedHostPath));
+                return bestDriveLetter.toUpperCase(Locale.ENGLISH) + ":\\" + relativePath;
+            }
+
+            if (!autoAddDrive) return null;
+
+            File parentDir = new File(normalizedHostPath).getParentFile();
+            if (parentDir == null || !parentDir.isDirectory()) return null;
+
+            char driveLetter = container.getNextAvailableDriveLetter();
+            if (driveLetter == 0) return null;
+            if (!container.addDrive(driveLetter, parentDir.getAbsolutePath())) {
+                return resolveDosPath(container, normalizedHostPath, false);
+            }
+            container.saveData();
+            return Character.toUpperCase(driveLetter) + ":\\" + new File(normalizedHostPath).getName();
+        }
+
+        private static String buildDesktopEntry(String shortcutName, String dosPath, int containerId) {
+            StringBuilder builder = new StringBuilder();
+            builder.append("[Desktop Entry]\n");
+            builder.append("Type=Application\n");
+            builder.append("Name=").append(shortcutName).append("\n");
+            builder.append("Exec=wine ").append(dosPath).append("\n");
+            builder.append("StartupNotify=true\n");
+            builder.append("Terminal=false\n\n");
+            builder.append("container_id:").append(containerId).append("\n");
+            return builder.toString();
+        }
+
+        private static File buildUniqueShortcutFile(File desktopDir, String shortcutName) {
+            File shortcutFile = new File(desktopDir, shortcutName + ".desktop");
+            int suffix = 2;
+            while (shortcutFile.exists()) {
+                shortcutFile = new File(desktopDir, shortcutName + " (" + suffix + ").desktop");
+                suffix++;
+            }
+            return shortcutFile;
+        }
+
+        private static String sanitizeShortcutName(String shortcutName) {
+            String sanitized = shortcutName.replace('/', '_').replace('\\', '_').trim();
+            return sanitized.isEmpty() ? "Shortcut" : sanitized;
+        }
+
+        private static String normalizePath(String path) {
+            if (path == null || path.isEmpty()) return "";
+            String normalized = new File(path).getAbsolutePath().replace('\\', '/');
+            if (normalized.length() > 1 && normalized.endsWith("/")) {
+                normalized = normalized.substring(0, normalized.length() - 1);
+            }
+            return normalized;
+        }
+
+        private static boolean isSameOrChild(String targetPath, String basePath) {
+            if (targetPath.equals(basePath)) return true;
+            return targetPath.startsWith(basePath + "/");
+        }
+
+        private static String toDosRelativePath(String path) {
+            String relativePath = path == null ? "" : path.replace('\\', '/');
+            while (relativePath.startsWith("/")) {
+                relativePath = relativePath.substring(1);
+            }
+            return relativePath.replace('/', '\\');
+        }
 
         public int getContainerId() {
             return container.id;

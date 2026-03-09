@@ -169,6 +169,75 @@ public class Container {
         this.drives = drives;
     }
 
+    public boolean hasDriveLetter(char letter) {
+        char normalizedLetter = Character.toUpperCase(letter);
+        for (String[] drive : drivesIterator()) {
+            if (!drive[0].isEmpty() && Character.toUpperCase(drive[0].charAt(0)) == normalizedLetter) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public char getNextAvailableDriveLetter() {
+        boolean[] usedLetters = new boolean[MAX_DRIVE_LETTERS];
+        usedLetters['C' - 'A'] = true;
+        usedLetters['Z' - 'A'] = true;
+
+        for (String[] drive : drivesIterator()) {
+            if (drive[0] != null && !drive[0].isEmpty()) {
+                char driveLetter = Character.toUpperCase(drive[0].charAt(0));
+                if (driveLetter >= 'A' && driveLetter <= 'Z') {
+                    usedLetters[driveLetter - 'A'] = true;
+                }
+            }
+        }
+
+        for (char driveLetter = 'D'; driveLetter <= 'Y'; driveLetter++) {
+            if (!usedLetters[driveLetter - 'A']) {
+                return driveLetter;
+            }
+        }
+
+        for (char driveLetter = 'A'; driveLetter <= 'Y'; driveLetter++) {
+            if (driveLetter != 'C' && !usedLetters[driveLetter - 'A']) {
+                return driveLetter;
+            }
+        }
+
+        return 0;
+    }
+
+    public boolean addDrive(char letter, String path) {
+        if (path == null || path.trim().isEmpty()) return false;
+
+        char driveLetter = Character.toUpperCase(letter);
+        if (driveLetter < 'A' || driveLetter > 'Z' || driveLetter == 'C' || driveLetter == 'Z') return false;
+
+        String normalizedPath = normalizeDrivePath(path);
+        if (normalizedPath.isEmpty()) return false;
+
+        if (hasDriveLetter(driveLetter)) return false;
+
+        for (String[] drive : drivesIterator()) {
+            if (normalizeDrivePath(drive[1]).equals(normalizedPath)) {
+                return true;
+            }
+        }
+
+        drives = (drives == null ? "" : drives) + driveLetter + ":" + normalizedPath;
+        return true;
+    }
+
+    private static String normalizeDrivePath(String path) {
+        if (path == null) return "";
+        String normalized = new File(path).getAbsolutePath().replace('\\', '/');
+        if (normalized.length() > 1 && normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
+    }
+
     public String getLC_ALL() {
         return lc_all;
     }

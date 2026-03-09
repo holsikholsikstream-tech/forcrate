@@ -15,19 +15,12 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.BufferedInputStream;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 public class ContentsManager {
     public static final String PROFILE_NAME = "profile.json";
@@ -177,7 +170,10 @@ public class ContentsManager {
 
         File file = getTmpDir(context);
 
-        boolean ret = extractContentArchive(uri, file);
+        boolean ret;
+        ret = TarCompressorUtils.extract(TarCompressorUtils.Type.XZ, context, uri, file);
+        if (!ret)
+            ret = TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, uri, file);
         if (!ret) {
             callback.onFailed(InstallFailedReason.ERROR_BADTAR, null);
             return;
@@ -401,7 +397,7 @@ public class ContentsManager {
     }
 
     public boolean applyContent(ContentProfile profile) {
-        if (profile.type != ContentProfile.ContentType.CONTENT_TYPE_WINE && profile.type != ContentProfile.ContentType.CONTENT_TYPE_PROTON) {
+        if (profile.type != ContentProfile.ContentType.CONTENT_TYPE_WINE || profile.type != ContentProfile.ContentType.CONTENT_TYPE_PROTON) {
             for (ContentProfile.ContentFile contentFile : profile.fileList) {
                 File targetFile = new File(getPathFromTemplate(contentFile.target));
                 File sourceFile = new File(getInstallDir(context, profile), contentFile.source);
@@ -414,70 +410,9 @@ public class ContentsManager {
                 }
             }
         } else {
-            // Wine/Proton content packages are mounted and selected elsewhere.
+            // TODO: do nothing?
         }
         return true;
-    }
-
-    private boolean extractContentArchive(Uri uri, File destinationDir) {
-        boolean ret = TarCompressorUtils.extract(TarCompressorUtils.Type.XZ, context, uri, destinationDir);
-        if (!ret) {
-            ret = TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, uri, destinationDir);
-        }
-        if (!ret) {
-            ret = extractZipArchive(uri, destinationDir);
-        }
-        return ret;
-    }
-
-    private boolean extractZipArchive(Uri uri, File destinationDir) {
-        try (InputStream rawInputStream = context.getContentResolver().openInputStream(uri)) {
-            if (rawInputStream == null) {
-                return false;
-            }
-
-            try (ZipInputStream zipInputStream = new ZipInputStream(new BufferedInputStream(rawInputStream))) {
-                byte[] buffer = new byte[8192];
-                ZipEntry entry;
-                boolean extractedAnyEntry = false;
-
-                while ((entry = zipInputStream.getNextEntry()) != null) {
-                    File outFile = new File(destinationDir, entry.getName());
-                    if (!isSubPath(destinationDir.getAbsolutePath(), outFile.getAbsolutePath())) {
-                        zipInputStream.closeEntry();
-                        return false;
-                    }
-
-                    if (entry.isDirectory()) {
-                        if (!outFile.exists() && !outFile.mkdirs()) {
-                            zipInputStream.closeEntry();
-                            return false;
-                        }
-                    } else {
-                        File parent = outFile.getParentFile();
-                        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                            zipInputStream.closeEntry();
-                            return false;
-                        }
-
-                        try (OutputStream outputStream = new FileOutputStream(outFile)) {
-                            int count;
-                            while ((count = zipInputStream.read(buffer)) != -1) {
-                                outputStream.write(buffer, 0, count);
-                            }
-                        }
-                    }
-
-                    extractedAnyEntry = true;
-                    zipInputStream.closeEntry();
-                }
-
-                return extractedAnyEntry;
-            }
-        } catch (IOException e) {
-            Log.e("ContentsManager", "Failed to extract WCP/ZIP content archive", e);
-            return false;
-        }
     }
 }
 

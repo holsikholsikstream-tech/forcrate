@@ -6,6 +6,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
@@ -16,6 +17,9 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -28,6 +32,8 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.fragment.app.Fragment;
@@ -62,13 +68,19 @@ import java.util.Collections;
 import java.util.List;
 
 public class ShortcutsFragment extends Fragment {
+    private static final int MENU_ADD_SHORTCUT = 1001;
     private RecyclerView recyclerView;
     private TextView emptyTextView;
     private ContainerManager manager;
+    private Container pendingShortcutContainer;
+    private final ActivityResultLauncher<String[]> addShortcutFilePicker = registerForActivityResult(
+            new ActivityResultContracts.OpenDocument(),
+            this::handleAddShortcutResult
+    );
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setHasOptionsMenu(false);
+        setHasOptionsMenu(true);
     }
 
     @Override
@@ -91,6 +103,106 @@ public class ShortcutsFragment extends Fragment {
         recyclerView.setLayoutManager(new LinearLayoutManager(recyclerView.getContext()));
         recyclerView.addItemDecoration(new DividerItemDecoration(recyclerView.getContext(), DividerItemDecoration.VERTICAL));
         return frameLayout;
+    }
+
+    @Override
+    public void onCreateOptionsMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
+        super.onCreateOptionsMenu(menu, inflater);
+        MenuItem menuItem = menu.add(Menu.NONE, MENU_ADD_SHORTCUT, Menu.NONE, "Add shortcut");
+        menuItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+        menuItem.setIcon(android.R.drawable.ic_input_add);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
+        if (item.getItemId() == MENU_ADD_SHORTCUT) {
+            promptAddShortcut();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    private void promptAddShortcut() {
+        if (manager == null) manager = new ContainerManager(getContext());
+        ArrayList<Container> containers = manager.getContainers();
+        if (containers == null || containers.isEmpty()) {
+            Toast.makeText(getContext(), "No containers found.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        showContainerSelectionDialog(containers, selectedContainer -> {
+            pendingShortcutContainer = selectedContainer;
+            addShortcutFilePicker.launch(new String[]{"*/*"});
+        });
+    }
+
+    private void handleAddShortcutResult(Uri uri) {
+        Context context = getContext();
+        if (context == null || uri == null) return;
+
+        if (pendingShortcutContainer == null) {
+            Toast.makeText(context, "Container is not selected.", Toast.LENGTH_SHORT).show();
+            pendingShortcutContainer = null;
+            return;
+        }
+
+        try {
+            context.getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        }
+        catch (Exception ignored) {}
+
+        String fileName = FileUtils.getUriFileName(context, uri);
+        String resolvedPath = FileUtils.getFilePathFromUri(context, uri);
+        if ((fileName == null || fileName.isEmpty()) && resolvedPath != null && !resolvedPath.isEmpty()) {
+            fileName = FileUtils.getName(resolvedPath);
+        }
+
+        if (!Shortcut.isSupportedExecutableName(fileName)) {
+            Toast.makeText(context, "Select an EXE, LNK or BAT file.", Toast.LENGTH_LONG).show();
+            pendingShortcutContainer = null;
+            return;
+        }
+
+        if (resolvedPath == null || resolvedPath.isEmpty()) {
+            Toast.makeText(context, "Unable to resolve the real file path for this file.", Toast.LENGTH_LONG).show();
+            pendingShortcutContainer = null;
+            return;
+        }
+
+        File executableFile = new File(resolvedPath);
+        if (!executableFile.isFile()) {
+            Toast.makeText(context, "File not found: " + resolvedPath, Toast.LENGTH_LONG).show();
+            pendingShortcutContainer = null;
+            return;
+        }
+
+        Shortcut createdShortcut = Shortcut.createFromExternalExecutable(pendingShortcutContainer, executableFile);
+        if (createdShortcut == null) {
+            Toast.makeText(context, "Failed to add shortcut.", Toast.LENGTH_LONG).show();
+            pendingShortcutContainer = null;
+            return;
+        }
+
+        loadShortcutsList();
+        Toast.makeText(context, "Shortcut added to " + pendingShortcutContainer.getName(), Toast.LENGTH_LONG).show();
+        pendingShortcutContainer = null;
+    }
+
+    public interface OnContainerSelectedListener {
+        void onContainerSelected(Container container);
+    }
+
+    private void showContainerSelectionDialog(ArrayList<Container> containers, OnContainerSelectedListener listener) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
+        builder.setTitle("Select a container");
+
+        String[] containerNames = new String[containers.size()];
+        for (int i = 0; i < containers.size(); i++) {
+            containerNames[i] = containers.get(i).getName();
+        }
+
+        builder.setItems(containerNames, (dialog, which) -> listener.onContainerSelected(containers.get(which)));
+        builder.show();
     }
 
     public void loadShortcutsList() {
@@ -218,33 +330,6 @@ public class ShortcutsFragment extends Fragment {
                 return true;
             });
             listItemMenu.show();
-        }
-
-
-        // Define the listener interface for selecting a container
-        public interface OnContainerSelectedListener {
-            void onContainerSelected(Container container);
-        }
-
-        private void showContainerSelectionDialog(ArrayList<Container> containers, OnContainerSelectedListener listener) {
-            // Create an AlertDialog to show the list of containers
-            AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
-            builder.setTitle("Select a container");
-
-            // Create an array of container names to display
-            String[] containerNames = new String[containers.size()];
-            for (int i = 0; i < containers.size(); i++) {
-                containerNames[i] = containers.get(i).getName();
-            }
-
-            // Set up the list in the dialog
-            builder.setItems(containerNames, (dialog, which) -> {
-                // Call the listener when a container is selected
-                listener.onContainerSelected(containers.get(which));
-            });
-
-            // Show the dialog
-            builder.show();
         }
 
         private void runFromShortcut(Shortcut shortcut) {

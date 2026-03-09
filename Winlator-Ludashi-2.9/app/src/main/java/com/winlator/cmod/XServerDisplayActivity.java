@@ -13,8 +13,6 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
-import android.graphics.Color;
-import android.graphics.Typeface;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -47,7 +45,6 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.GravityCompat;
-import androidx.core.widget.TextViewCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.preference.PreferenceManager;
 
@@ -1221,7 +1218,6 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         if (container != null && container.isShowFPS()) {
             frameRating = new FrameRating(this, graphicsDriverConfig);
             frameRating.setVisibility(View.GONE);
-            styleFrameRating(frameRating);
             rootView.addView(frameRating);
         }
 
@@ -1298,34 +1294,6 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             } else if (child instanceof TextView) {
                 // If the child is a TextView, set its text color
                 ((TextView) child).setTextColor(color);
-            }
-        }
-    }
-
-    private void styleFrameRating(FrameRating frameRatingView) {
-        if (frameRatingView == null) {
-            return;
-        }
-
-        TextView themedReference = new TextView(this);
-        TextViewCompat.setTextAppearance(themedReference, androidx.appcompat.R.style.TextAppearance_AppCompat_Body1);
-        Typeface referenceTypeface = themedReference.getTypeface();
-
-        styleFrameRatingViewGroup(frameRatingView, referenceTypeface);
-    }
-
-    private void styleFrameRatingViewGroup(View view, @Nullable Typeface referenceTypeface) {
-        if (view instanceof TextView textView) {
-            TextViewCompat.setTextAppearance(textView, androidx.appcompat.R.style.TextAppearance_AppCompat_Body1);
-            textView.setTextColor(Color.WHITE);
-            if (referenceTypeface != null) {
-                textView.setTypeface(referenceTypeface, Typeface.NORMAL);
-            }
-        }
-
-        if (view instanceof ViewGroup viewGroup) {
-            for (int i = 0; i < viewGroup.getChildCount(); i++) {
-                styleFrameRatingViewGroup(viewGroup.getChildAt(i), referenceTypeface);
             }
         }
     }
@@ -1867,6 +1835,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             } else {
                 String exeDir = FileUtils.getDirname(shortcut.path);
                 String filename = FileUtils.getName(shortcut.path);
+                String lowerPath = shortcut.path.toLowerCase();
 
                 int dotIndex = filename.lastIndexOf(".");
                 int spaceIndex = (dotIndex != -1) ? filename.indexOf(" ", dotIndex) : -1;
@@ -1876,7 +1845,11 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
                     filename = filename.substring(0, spaceIndex);
                 }
 
-                args += "/dir " + StringUtils.escapeDOSPath(exeDir) + " \"" + filename + "\"" + execArgs;
+                if (lowerPath.endsWith(".bat")) {
+                    args += "/dir " + StringUtils.escapeDOSPath(exeDir) + " \"C:\\windows\\system32\\cmd.exe\" /c \"" + filename + "\"" + execArgs;
+                } else {
+                    args += "/dir " + StringUtils.escapeDOSPath(exeDir) + " \"" + filename + "\"" + execArgs;
+                }
             }
         } else {
             // Append EXTRA_EXEC_ARGS from overrideEnvVars if it exists
@@ -1978,7 +1951,6 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             if (frameRatingWindowId == -1 && property.nameAsString().contains("_MESA_DRV")) {
                 frameRatingWindowId = window.id;
                 Log.d("XServerDisplayActivity", "Showing hud for Window " + window.getName());
-                runOnUiThread(() -> styleFrameRating(frameRating));
                 frameRating.update();
             }
             if (property.nameAsString().contains("_MESA_DRV_ENGINE_NAME")) {
